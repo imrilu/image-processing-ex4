@@ -11,6 +11,7 @@ import scipy.signal
 from scipy.ndimage.morphology import generate_binary_structure
 from scipy.ndimage.filters import maximum_filter
 from scipy.ndimage import label, center_of_mass
+from scipy import ndimage
 
 import sol4_utils
 
@@ -24,6 +25,7 @@ DESC_RAD = 3
 M_SIZE = 7
 N_SIZE = 7
 RADIUS_SIZE = 4
+BAD_IDX = -1
 
 def harris_corner_detector(im):
     """
@@ -35,8 +37,8 @@ def harris_corner_detector(im):
     # setting up k var as instructed in exercise
     k = 0.04
     # calculating deriv in x and y orientation
-    dx = scipy.signal.convolve2d(im, deriv_vec, mode='same')
-    dy = scipy.signal.convolve2d(im, np.transpose(deriv_vec), mode='same')
+    dx = ndimage.filters.convolve(im, deriv_vec, mode='nearest')
+    dy = ndimage.filters.convolve(im, np.transpose(deriv_vec), mode='nearest')
     #TODO: check if multiplication is element-wise (np.multiply) or regular (np.dot)
     dx_pow = sol4_utils.blur_spatial(np.multiply(dx, dx), KERNEL_SIZE)
     dy_pow = sol4_utils.blur_spatial(np.multiply(dy, dy), KERNEL_SIZE)
@@ -54,7 +56,7 @@ def harris_corner_detector(im):
 
     max_response = non_maximum_suppression(response_im)
 
-    return np.argwhere(max_response)
+    return np.stack(np.flip(np.where(max_response), axis=0), axis=-1)
 
 def helper_sample(x, y, desc_rad):
     div_factor = 1/4
@@ -101,56 +103,156 @@ def find_features(pyr):
     return feature_pts, feature_descriptor
 
 
+def desc_score_helper(desc1, feature_desc, min_score):
+    """
+    gets a feature descriptor array with shape (N,K,K) and calculate it's score with the input feature descriptor
+    :param desc1: A feature descriptor array with shape (N1,K,K).
+    :param n: A feature descriptor to calculate it's dot product with
+    :return: the indices of the 2 best scores
+    """
+    score_list = np.zeros(shape=(desc1.shape[0]))
+    feature_desc_flatten = feature_desc.flatten()
+    for i in range(desc1.shape[0]):
+        score_list[i] = np.dot(desc1[i].flatten(), feature_desc_flatten)
+    best_indices = np.argpartition(score_list, -2)[-2:]
+    for i in range(best_indices.shape[0]):
+        if score_list[best_indices[i]] <= min_score:
+            best_indices[i] = BAD_IDX
+    return best_indices
+
 def match_features(desc1, desc2, min_score):
-  """
-  Return indices of matching descriptors.
-  :param desc1: A feature descriptor array with shape (N1,K,K).
-  :param desc2: A feature descriptor array with shape (N2,K,K).
-  :param min_score: Minimal match score.
-  :return: A list containing:
+    """
+    Return indices of matching descriptors.
+    :param desc1: A feature descriptor array with shape (N1,K,K).
+    :param desc2: A feature descriptor array with shape (N2,K,K).
+    :param min_score: Minimal match score.
+    :return: A list containing:
               1) An array with shape (M,) and dtype int of matching indices in desc1.
               2) An array with shape (M,) and dtype int of matching indices in desc2.
-  """
-  pass
+    """
+    best_scores_desc1 = np.zeros(shape=(desc1.shape[0], 2), dtype=np.int64)
+    best_scores_desc2 = np.zeros(shape=(desc2.shape[0], 2), dtype=np.int64)
+    matching_indices_desc1 = np.array([])
+    matching_indices_desc2 = np.array([])
+
+    # getting best matches for each desc2 feature
+    for i in range(desc2.shape[0]):
+        best_scores_desc2[i] = desc_score_helper(desc1, desc2[i], min_score)
+
+    for i in range(desc1.shape[0]):
+        best_scores_desc1[i] = desc_score_helper(desc2, desc1[i], min_score)
+
+    # comparing each feature's bests to find matches
+    for i in range(best_scores_desc2.shape[0]):
+        for j in range(best_scores_desc2.shape[1]):
+            # iterating over 2 best scores of desc2[i] descriptor
+            idx = best_scores_desc2[i][j]
+            if idx == BAD_IDX:
+                continue
+            if i in best_scores_desc1[idx]:
+                matching_indices_desc1 = np.append(matching_indices_desc1, idx)
+                matching_indices_desc2 = np.append(matching_indices_desc2, i)
+    return matching_indices_desc1, matching_indices_desc2
 
 
 def apply_homography(pos1, H12):
-  """
-  Apply homography to inhomogenous points.
-  :param pos1: An array with shape (N,2) of [x,y] point coordinates.
-  :param H12: A 3x3 homography matrix.
-  :return: An array with the same shape as pos1 with [x,y] point coordinates obtained from transforming pos1 using H12.
-  """
-  pass
+    """
+    Apply homography to inhomogenous points.
+    :param pos1: An array with shape (N,2) of [x,y] point coordinates.
+    :param H12: A 3x3 homography matrix.
+    :return: An array with the same shape as pos1 with [x,y] point coordinates obtained from transforming pos1 using H12.
+    """
+    mat = np.zeros(shape=(pos1.shape[0], pos1.shape[1]))
+    for i in range(pos1.shape[0]):
+        x = pos1[i][0]
+        y = pos1[i][1]
+        temp_vec = np.dot(H12, np.array([x, y, 1]))
+        if temp_vec[2] == 0:
+            # z tilda is 0, cant divide with him
+            print("error z2=0")
+            continue
+        mat[i] = [temp_vec[0] / temp_vec[2], temp_vec[1] / temp_vec[2]]
+    return mat
 
 
 def ransac_homography(points1, points2, num_iter, inlier_tol, translation_only=False):
-  """
-  Computes homography between two sets of points using RANSAC.
-  :param pos1: An array with shape (N,2) containing N rows of [x,y] coordinates of matched points in image 1.
-  :param pos2: An array with shape (N,2) containing N rows of [x,y] coordinates of matched points in image 2.
-  :param num_iter: Number of RANSAC iterations to perform.
-  :param inlier_tol: inlier tolerance threshold.
-  :param translation_only: see estimate rigid transform
-  :return: A list containing:
+    """
+    Computes homography between two sets of points using RANSAC.
+    :param pos1: An array with shape (N,2) containing N rows of [x,y] coordinates of matched points in image 1.
+    :param pos2: An array with shape (N,2) containing N rows of [x,y] coordinates of matched points in image 2.
+    :param num_iter: Number of RANSAC iterations to perform.
+    :param inlier_tol: inlier tolerance threshold.
+    :param translation_only: see estimate rigid transform
+    :return: A list containing:
               1) A 3x3 normalized homography matrix.
               2) An Array with shape (S,) where S is the number of inliers,
                   containing the indices in pos1/pos2 of the maximal set of inlier matches found.
-  """
-  pass
+    """
+    N = points1.shape[0]
+    cur_max_inliners = np.array([], dtype=np.int64)
+
+    for i in range(num_iter):
+        temp_best_inliners = np.array([], dtype=np.int64)
+        random_pts = np.random.choice(N, 2)
+        points1_temp = np.array([points1[random_pts[0]], points1[random_pts[1]]])
+        points2_temp = np.array([points2[random_pts[0]], points2[random_pts[1]]])
+        H12 = estimate_rigid_transform(points1_temp, points2_temp, translation_only)
+        # calculating new homography based on
+        points1_to_2 = apply_homography(points1, H12)
+        # calculating for each descriptor in new_homo the euclidean error
+        for j in range(points1_to_2.shape[0]):
+            if np.linalg.norm(points1_to_2[j] - points2[j]) ** 2 < inlier_tol:
+                # inliner match
+                # print("match")
+                temp_best_inliners = np.append(temp_best_inliners, j)
+        # checking if current iteration yielded max number of inliners
+        if temp_best_inliners.shape[0] > cur_max_inliners.shape[0]:
+            cur_max_inliners = temp_best_inliners
+    print("max inliner: ", cur_max_inliners.shape[0])
+
+    final_inliners1 = np.zeros(shape=(cur_max_inliners.shape[0], 2), dtype=np.int64)
+    final_inliners2 = np.zeros(shape=(cur_max_inliners.shape[0], 2), dtype=np.int64)
+    for i in range(cur_max_inliners.shape[0]):
+        final_inliners1[i] = points1[cur_max_inliners[i]]
+        final_inliners2[i] = points2[cur_max_inliners[i]]
+
+    print(final_inliners1)
+    print()
+    print(final_inliners2)
+
+    H12 = estimate_rigid_transform(final_inliners1, final_inliners2, translation_only)
+    points1_to_2 = apply_homography(points1, H12)
+    final = np.array([], dtype=np.int64)
+    for j in range(points1_to_2.shape[0]):
+        if np.linalg.norm(points1_to_2[j] - points2[j]) ** 2 < inlier_tol:
+            final = np.append(final, j)
+    print("final inliners found: ", final.shape[0])
+    return H12, final
 
 
 def display_matches(im1, im2, points1, points2, inliers):
-  """
-  Dispalay matching points.
-  :param im1: A grayscale image.
-  :param im2: A grayscale image.
-  :parma pos1: An aray shape (N,2), containing N rows of [x,y] coordinates of matched points in im1.
-  :param pos2: An aray shape (N,2), containing N rows of [x,y] coordinates of matched points in im2.
-  :param inliers: An array with shape (S,) of inlier matches.
-  """
-  pass
+    """
+    Dispalay matching points.
+    :param im1: A grayscale image.
+    :param im2: A grayscale image.
+    :parma pos1: An aray shape (N,2), containing N rows of [x,y] coordinates of matched points in im1.
+    :param pos2: An aray shape (N,2), containing N rows of [x,y] coordinates of matched points in im2.
+    :param inliers: An array with shape (S,) of inlier matches.
+    """
+    conc_img = np.concatenate((im1, im2))
 
+    points2_x, points2_y = np.dsplit(points2, points2.shape[1])
+    points2_x += im1.shape[1]
+    points2_y += im1.shape[0]
+    points2 = np.concatenate((points2_x, points2_y))
+    plt.imshow(conc_img, cmap='gray')
+    for i in range(points2.shape[0]):
+        plt.plot(points1[i, 0],points1[i, 1], points2[i, 0], points2[i, 1], marker='o')
+    inliers1 = np.take(points1, inliers)
+    inliers2 = np.take(points2, inliers)
+
+
+    plt.show()
 
 
 def accumulate_homographies(H_succesive, m):
@@ -440,14 +542,30 @@ class PanoramicVideoGenerator:
     plt.imshow(self.panoramas[panorama_index].clip(0, 1))
     plt.show()
 
+def elements_from_indices(arr, indices):
+    matching_coords = np.zeros(shape=(indices.shape[0], 2))
+    for i in range(indices.shape[0]):
+        idx = int(indices[i])
+        matching_coords[i] = arr[idx]
+    return matching_coords
 
-im = sol4_utils.read_image("C:\/Users\Imri\PycharmProjects\IP_ex4\external\oxford1.jpg", 1)
-# R = spread_out_corners(im, 7,7,3)
-# plt.imshow(im, cmap='gray')
-# plt.plot(R[:,0], R[:,1], color='red', marker='o', markerfacecolor='blue',markersize=1, lw=.5)
+
+im1 = sol4_utils.read_image("C:\/Users\Imri\PycharmProjects\IP_ex4\ex4-imrilu\external\oxford1.jpg", 1)
+im2 = sol4_utils.read_image("C:\/Users\Imri\PycharmProjects\IP_ex4\ex4-imrilu\external\oxford2.jpg", 1)
+pyr1 = sol4_utils.build_gaussian_pyramid(im1, 3, 3)[0]
+pyr2 = sol4_utils.build_gaussian_pyramid(im2, 3, 3)[0]
+desc_coords1, desc1 = find_features(pyr1)
+desc_coords2, desc2 = find_features(pyr2)
+matching_idx1, matching_idx2 = match_features(desc1, desc2, 0.5)
+
+
+print("hello")
+
+ransac_homography(elements_from_indices(desc_coords1, matching_idx1), elements_from_indices(desc_coords2, matching_idx2), 1000, 10)
+
+# R = spread_out_corners(im1, 7,7,3)
 #
-#
+# plt.imshow(im1, cmap='gray')
+# plt.plot(R[:,0], R[:,1], "o")
 # plt.show()
 
-pyr = sol4_utils.build_gaussian_pyramid(im, 3, 3)[0]
-find_features(pyr)
