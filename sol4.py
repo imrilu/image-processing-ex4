@@ -96,6 +96,10 @@ def find_features(pyr):
               2) A feature descriptor array with shape (N,K,K)
     """
     feature_pts = spread_out_corners(pyr[0], M_SIZE, N_SIZE, RADIUS_SIZE)
+
+    #TODO: check if row below does anything, DELETE IF NOT
+    # feature_pts = np.flip(feature_pts, axis=0)
+
     feature_descriptor = sample_descriptor(pyr[2], feature_pts, DESC_RAD)
     return feature_pts, feature_descriptor
 
@@ -192,38 +196,43 @@ def ransac_homography(points1, points2, num_iter, inlier_tol, translation_only=F
         temp_best_inliners = np.array([], dtype=np.int64)
         # rolling 2 random numbers in N range (as index), and getting the points
         random_pts = np.random.choice(N, 2)
-        points1_temp = elements_from_indices(points1, random_pts)
-        points2_temp = elements_from_indices(points2, random_pts)
+        points1_temp = points1[random_pts.astype(np.int32)]
+        points2_temp = points2[random_pts.astype(np.int32)]
         # estimating the homography using those points
         H12 = estimate_rigid_transform(points1_temp, points2_temp, translation_only)
         # calculating new homography based on
         points1_to_2 = apply_homography(points1, H12)
         # calculating for each descriptor in new_homo the euclidean error
 
-        for j in range(points1_to_2.shape[0]):
-            if np.linalg.norm(points1_to_2[j] - points2[j]) ** 2 < inlier_tol:
-                # inliner match
-                temp_best_inliners = np.append(temp_best_inliners, j)
+        norm_vec1 = np.absolute(points1_to_2)
+        norm_vec2 = np.absolute(points2)
+        norm_vec = ((norm_vec1[:,0] - norm_vec2[:,0]) + (norm_vec1[:,1] - norm_vec2[:,1])) ** 2
+        temp_best_inliners = np.asarray(np.where(norm_vec < inlier_tol)[0])
+
         # checking if current iteration yielded max number of inliners
         if temp_best_inliners.shape[0] > cur_max_inliners.shape[0]:
             cur_max_inliners = temp_best_inliners
-    print("max inliner: ", cur_max_inliners.shape[0])
+    print("cur max inliner size: ", cur_max_inliners.shape[0])
 
     print("cur max inliners: ", cur_max_inliners)
 
-    final_inliners1 = elements_from_indices(points1, cur_max_inliners)
-    final_inliners2 = elements_from_indices(points2, cur_max_inliners)
+    final_inliners1 = points1[cur_max_inliners.astype(np.int32)]
+    final_inliners2 = points2[cur_max_inliners.astype(np.int32)]
 
-    print(final_inliners1)
-    print()
-    print(final_inliners2)
+    # print(final_inliners1)
+    # print()
+    # print(final_inliners2)
 
     H12 = estimate_rigid_transform(final_inliners1, final_inliners2, translation_only)
     points1_to_2 = apply_homography(points1, H12)
-    final = np.array([], dtype=np.int64)
-    for j in range(points1_to_2.shape[0]):
-        if np.linalg.norm(points1_to_2[j] - points2[j]) ** 2 < inlier_tol:
-            final = np.append(final, j)
+
+    norm_vec1 = np.absolute(points1_to_2)
+    norm_vec2 = np.absolute(points2)
+    norm_vec = ((norm_vec1[:, 0] - norm_vec2[:, 0]) + (norm_vec1[:, 1] - norm_vec2[:, 1])) ** 2
+    final = np.asarray(np.where(norm_vec < inlier_tol)[0])
+    print("final inlier size: ", final.shape[0])
+    print("final inlier: ", final)
+
     print("final inliners found: ", final.shape[0])
     return H12, final
 
@@ -237,17 +246,23 @@ def display_matches(im1, im2, points1, points2, inliers):
     :param pos2: An aray shape (N,2), containing N rows of [x,y] coordinates of matched points in im2.
     :param inliers: An array with shape (S,) of inlier matches.
     """
-    conc_img = np.concatenate((im1, im2))
+    conc_img = np.hstack((im1, im2))
+    conc_pts = np.hstack((points1, points2))
 
-    points2_x, points2_y = np.dsplit(points2, points2.shape[1])
-    points2_x += im1.shape[1]
-    points2_y += im1.shape[0]
-    points2 = np.concatenate((points2_x, points2_y))
-    plt.imshow(conc_img, cmap='gray')
-    for i in range(points2.shape[0]):
-        plt.plot(points1[i, 0],points1[i, 1], points2[i, 0], points2[i, 1], marker='o')
-    inliers1 = np.take(points1, inliers)
-    inliers2 = np.take(points2, inliers)
+    points2[:,1] += im2.shape[1]
+    updated_pts_x = [points1[:,1], points2[:,1]]
+    updated_pts_y = [points1[:,0], points2[:,0]]
+
+    plt.imshow(im1, cmap='gray')
+    # for i in range(points2.shape[0]):
+    #     temp_y = [conc_pts[i][0], conc_pts[i][2]]
+    #     temp_x = [conc_pts[i][1], conc_pts[i][3]]
+    #     plt.plot(temp_x, temp_y, mfc='r', c='b', lw=.4, ms=1, marker='o')
+
+    # plt.plot(updated_pts_x, updated_pts_y, mfc='r', c='r', lw=.4, ms=1, marker='o')
+
+    plt.plot(points1[inliers.astype(np.int32)], mfc='r', c='y', lw=.4, ms=1, marker='o')
+    plt.plot(points1, mfc='r', c='b', lw=.4, ms=1, marker='o')
 
 
     plt.show()
@@ -540,19 +555,10 @@ class PanoramicVideoGenerator:
     plt.imshow(self.panoramas[panorama_index].clip(0, 1))
     plt.show()
 
-def elements_from_indices(arr, indices):
-
-    return arr[indices.astype(np.int32)]
-
-    matching_coords = np.zeros(shape=(indices.shape[0], 2))
-    for i in range(indices.shape[0]):
-        idx = int(indices[i])
-        matching_coords[i] = arr[idx]
-    return matching_coords
-
 
 im1 = sol4_utils.read_image("C:\/Users\Imri\PycharmProjects\IP_ex4\ex4-imrilu\external\oxford1.jpg", 1)
 im2 = sol4_utils.read_image("C:\/Users\Imri\PycharmProjects\IP_ex4\ex4-imrilu\external\oxford2.jpg", 1)
+# im3 = sol4_utils.read_image("C:\ex1\gray_orig.png", 1)
 pyr1 = sol4_utils.build_gaussian_pyramid(im1, 3, 3)[0]
 pyr2 = sol4_utils.build_gaussian_pyramid(im2, 3, 3)[0]
 desc_coords1, desc1 = find_features(pyr1)
@@ -562,11 +568,13 @@ matching_idx1, matching_idx2 = match_features(desc1, desc2, 0.5)
 
 print("hello")
 
-ransac_homography(elements_from_indices(desc_coords1, matching_idx1), elements_from_indices(desc_coords2, matching_idx2), 1000, 10)
+h12, ind = ransac_homography(desc_coords1[matching_idx1.astype(np.int32)], desc_coords2[matching_idx2.astype(np.int32)], 1000, 10)
+display_matches(im1, im2, desc_coords1[matching_idx1.astype(np.int32)], desc_coords2[matching_idx2.astype(np.int32)], ind)
 
-# R = spread_out_corners(im1, 7,7,3)
-#
+
+# R = spread_out_corners(im3, 7,7,3)
+# R = desc_coords1[ind]
 # plt.imshow(im1, cmap='gray')
-# plt.plot(R[:,0], R[:,1], "o")
+# plt.plot(R[:,0], R[:,1], "o", ms=1)
 # plt.show()
 
