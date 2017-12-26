@@ -1,7 +1,3 @@
-# Initial code for ex4.
-# You may change this code, but keep the functions' signatures
-# You can also split the code to multiple files as long as this file's API is unchanged 
-
 import numpy as np
 import os
 import matplotlib.pyplot as plt
@@ -60,7 +56,7 @@ def harris_corner_detector(im):
 
 def helper_sample(x, y, desc_rad):
     div_factor = 1/4
-    vec = np.multiply(np.arange(-desc_rad, desc_rad + 1), div_factor)
+    vec = np.arange(-desc_rad, desc_rad + 1)
     vec_x = np.tile(np.add(vec, x * div_factor), 1 + desc_rad * 2)
     vec_y = np.repeat(np.add(vec, y * div_factor), 1 + desc_rad * 2)
     # print(vec_x)
@@ -79,8 +75,9 @@ def sample_descriptor(im, pos, desc_rad):
     N = pos.shape[0]
     output_array = np.zeros((N, K, K), dtype=np.float64)
     for i in range(N):
-        temp_x, temp_y = helper_sample(pos[i,0], pos[i,1], desc_rad)
-        mat = scipy.ndimage.interpolation.map_coordinates(im, [temp_x, temp_y])
+        # VERY IMPORTANT: helper sample x,y coords are flipped, so 0'th coord is y, 1'st coord is x:
+        temp_x, temp_y = helper_sample(pos[i,1], pos[i,0], desc_rad)
+        mat = scipy.ndimage.interpolation.map_coordinates(im, [temp_x, temp_y], order=1, prefilter=False)
         mat = np.reshape(mat, (K, K))
         # checking that we're not dividing by 0
         if (np.linalg.norm(mat - np.mean(mat)) != 0):
@@ -193,28 +190,29 @@ def ransac_homography(points1, points2, num_iter, inlier_tol, translation_only=F
 
     for i in range(num_iter):
         temp_best_inliners = np.array([], dtype=np.int64)
+        # rolling 2 random numbers in N range (as index), and getting the points
         random_pts = np.random.choice(N, 2)
-        points1_temp = np.array([points1[random_pts[0]], points1[random_pts[1]]])
-        points2_temp = np.array([points2[random_pts[0]], points2[random_pts[1]]])
+        points1_temp = elements_from_indices(points1, random_pts)
+        points2_temp = elements_from_indices(points2, random_pts)
+        # estimating the homography using those points
         H12 = estimate_rigid_transform(points1_temp, points2_temp, translation_only)
         # calculating new homography based on
         points1_to_2 = apply_homography(points1, H12)
         # calculating for each descriptor in new_homo the euclidean error
+
         for j in range(points1_to_2.shape[0]):
             if np.linalg.norm(points1_to_2[j] - points2[j]) ** 2 < inlier_tol:
                 # inliner match
-                # print("match")
                 temp_best_inliners = np.append(temp_best_inliners, j)
         # checking if current iteration yielded max number of inliners
         if temp_best_inliners.shape[0] > cur_max_inliners.shape[0]:
             cur_max_inliners = temp_best_inliners
     print("max inliner: ", cur_max_inliners.shape[0])
 
-    final_inliners1 = np.zeros(shape=(cur_max_inliners.shape[0], 2), dtype=np.int64)
-    final_inliners2 = np.zeros(shape=(cur_max_inliners.shape[0], 2), dtype=np.int64)
-    for i in range(cur_max_inliners.shape[0]):
-        final_inliners1[i] = points1[cur_max_inliners[i]]
-        final_inliners2[i] = points2[cur_max_inliners[i]]
+    print("cur max inliners: ", cur_max_inliners)
+
+    final_inliners1 = elements_from_indices(points1, cur_max_inliners)
+    final_inliners2 = elements_from_indices(points2, cur_max_inliners)
 
     print(final_inliners1)
     print()
@@ -543,6 +541,9 @@ class PanoramicVideoGenerator:
     plt.show()
 
 def elements_from_indices(arr, indices):
+
+    return arr[indices.astype(np.int32)]
+
     matching_coords = np.zeros(shape=(indices.shape[0], 2))
     for i in range(indices.shape[0]):
         idx = int(indices[i])
