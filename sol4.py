@@ -137,7 +137,7 @@ def match_features(desc1, desc2, min_score):
     matching_indices_desc2 = np.array([])
 
     # getting best matches for each desc2 feature
-    for i in range(desc2.shape[0]):
+    for i in range(128,desc2.shape[0]):
         best_scores_desc2[i] = desc_score_helper(desc1, desc2[i], min_score)
 
     for i in range(desc1.shape[0]):
@@ -246,24 +246,16 @@ def display_matches(im1, im2, points1, points2, inliers):
     :param pos2: An aray shape (N,2), containing N rows of [x,y] coordinates of matched points in im2.
     :param inliers: An array with shape (S,) of inlier matches.
     """
+    # IMPORTANT: here points1, points2 are in the form: [0] is X, [1] is Y!
     conc_img = np.hstack((im1, im2))
+    # adding to the points2 x param the im2 WIDTH (aka x coord)
+    points2[:,0] += im2.shape[1]
     conc_pts = np.hstack((points1, points2))
+    inliers_pts = conc_pts[inliers.astype(np.int32)]
 
-    points2[:,1] += im2.shape[1]
-    updated_pts_x = [points1[:,1], points2[:,1]]
-    updated_pts_y = [points1[:,0], points2[:,0]]
-
-    plt.imshow(im1, cmap='gray')
-    # for i in range(points2.shape[0]):
-    #     temp_y = [conc_pts[i][0], conc_pts[i][2]]
-    #     temp_x = [conc_pts[i][1], conc_pts[i][3]]
-    #     plt.plot(temp_x, temp_y, mfc='r', c='b', lw=.4, ms=1, marker='o')
-
-    # plt.plot(updated_pts_x, updated_pts_y, mfc='r', c='r', lw=.4, ms=1, marker='o')
-
-    plt.plot(points1[inliers.astype(np.int32)], mfc='r', c='y', lw=.4, ms=1, marker='o')
-    plt.plot(points1, mfc='r', c='b', lw=.4, ms=1, marker='o')
-
+    plt.imshow(conc_img, cmap='gray')
+    plt.plot([conc_pts[:,0], conc_pts[:,2]], [conc_pts[:,1], conc_pts[:,3]], mfc='r', c='b', lw=.4, ms=3, marker='o')
+    plt.plot([inliers_pts[:,0], inliers_pts[:,2]], [inliers_pts[:,1], inliers_pts[:,3]], mfc='r', c='y', lw=.4, ms=3, marker='o')
 
     plt.show()
 
@@ -563,8 +555,14 @@ pyr1 = sol4_utils.build_gaussian_pyramid(im1, 3, 3)[0]
 pyr2 = sol4_utils.build_gaussian_pyramid(im2, 3, 3)[0]
 desc_coords1, desc1 = find_features(pyr1)
 desc_coords2, desc2 = find_features(pyr2)
-matching_idx1, matching_idx2 = match_features(desc1, desc2, 0.5)
+matching_idx1, matching_idx2 = match_features(desc1, desc2, 0.9)
 
+# matching_pts1 = desc_coords1[matching_idx1.astype(np.int32)]
+# matching_pts2 = desc_coords2[matching_idx2.astype(np.int32)]
+# plt.imshow(im1, cmap='gray')
+# # plt.plot(desc_coords1[:,0], desc_coords1[:,1], "o", ms=1)
+# plt.plot(matching_pts1[:,0], matching_pts1[:,1], "o", c='r', ms=1)
+# plt.show()
 
 print("hello")
 
