@@ -149,7 +149,7 @@ def match_features(desc1, desc2, min_score):
             if i in best_scores_desc1[idx]:
                 matching_indices_desc1 = np.append(matching_indices_desc1, idx)
                 matching_indices_desc2 = np.append(matching_indices_desc2, i)
-    return matching_indices_desc1, matching_indices_desc2
+    return matching_indices_desc1.astype(np.int32), matching_indices_desc2.astype(np.int32)
 
 
 def apply_homography(pos1, H12):
@@ -268,9 +268,9 @@ def accumulate_homographies(H_succesive, m):
     :return: A list of M 3x3 homography matrices,
     where H2m[i] transforms points from coordinate system i to coordinate system m
     """
-    H2m = np.zeros(shape=(H_succesive.shape[0], 3, 3))
+    H2m = np.zeros(shape=(len(H_succesive), 3, 3))
     # checking that m is valid input
-    if m > H_succesive.shape[0]:
+    if m >= len(H_succesive):
         # out of bounds
         print("error, m is out of bounds")
 
@@ -281,12 +281,12 @@ def accumulate_homographies(H_succesive, m):
 
     H2m[m] = np.eye(3)
 
-    if m == H_succesive.shape[0]:
+    if m == len(H_succesive) - 1:
         # we're done
         return H2m
 
     H2m[m+1] = np.linalg.inv(H_succesive[m+1])
-    for i in range(m+1, H_succesive.shape[0] - 1):
+    for i in range(m+1, len(H_succesive) - 2):
         # i > m
         H2m[i + 1] = np.dot(H2m[i], np.linalg.inv(H_succesive[i + 1]))
 
@@ -311,7 +311,16 @@ def warp_channel(image, homography):
     :param homography: homograhpy.
     :return: A 2d warped image.
     """
-    pass
+    bounding_box = compute_bounding_box(homography, image.shape[0], image.shape[1])
+    # final_img = np.zeros(shape=(bounding_box[1][0] + 1, bounding_box[1][1] + 1))
+    x_vec = np.arange(bounding_box[0][0], bounding_box[1][1] + 1)
+    y_vec = np.arange(bounding_box[0][0], bounding_box[1][0] + 1)
+    xx, yy = np.meshgrid(x_vec, y_vec)
+    new_points = apply_homography(np.column_stack((xx.flatten(), yy.flatten())), np.linalg.inv(homography))
+    new_points = np.reshape(new_points, (int(bounding_box[1][0] + 1), int(bounding_box[1][1] + 1), 2))
+    new_im = scipy.ndimage.interpolation.map_coordinates(image, [new_points[:,:,1], new_points[:,:,0]], order=1, prefilter=False)
+    return new_im
+
 
 
 def warp_image(image, homography):
@@ -534,9 +543,9 @@ class PanoramicVideoGenerator:
     # assert will fail if there is overlap in field of view between the left most image and the right most image
     crop_left = int(self.bounding_boxes[0][1, 0])
     crop_right = int(self.bounding_boxes[-1][0, 0])
-    assert crop_left < crop_right, 'for testing your code with a few images do not crop.'
-    print(crop_left, crop_right)
-    self.panoramas = self.panoramas[:, :, crop_left:crop_right, :]
+    # assert crop_left < crop_right, 'for testing your code with a few images do not crop.'
+    # print(crop_left, crop_right)
+    # self.panoramas = self.panoramas[:, :, crop_left:crop_right, :]
 
 
   def save_panoramas_to_video(self):
@@ -565,22 +574,35 @@ class PanoramicVideoGenerator:
     plt.show()
 
 
-im1 = sol4_utils.read_image("C:\/Users\Imri\PycharmProjects\IP_ex4\ex4-imrilu\external\oxford1.jpg", 1)
-im2 = sol4_utils.read_image("C:\/Users\Imri\PycharmProjects\IP_ex4\ex4-imrilu\external\oxford2.jpg", 1)
-# im3 = sol4_utils.read_image("C:\ex1\gray_orig.png", 1)
-pyr1 = sol4_utils.build_gaussian_pyramid(im1, 3, 3)[0]
-pyr2 = sol4_utils.build_gaussian_pyramid(im2, 3, 3)[0]
-desc_coords1, desc1 = find_features(pyr1)
-desc_coords2, desc2 = find_features(pyr2)
-matching_idx1, matching_idx2 = match_features(desc1, desc2, 0.9)
+# im1 = sol4_utils.read_image("C:\/Users\Imri\PycharmProjects\IP_ex4\ex4-imrilu\external\oxford001.jpg", 1)
+# im2 = sol4_utils.read_image("C:\/Users\Imri\PycharmProjects\IP_ex4\ex4-imrilu\external\oxford2.jpg", 1)
+# # im3 = sol4_utils.read_image("C:\ex1\gray_orig.png", 1)
+# pyr1 = sol4_utils.build_gaussian_pyramid(im1, 3, 3)[0]
+# pyr2 = sol4_utils.build_gaussian_pyramid(im2, 3, 3)[0]
+# desc_coords1, desc1 = find_features(pyr1)
+# desc_coords2, desc2 = find_features(pyr2)
+# matching_idx1, matching_idx2 = match_features(desc1, desc2, 0.9)
 
 print("up to ransac")
 
-h12, ind = ransac_homography(desc_coords1[matching_idx1.astype(np.int32)], desc_coords2[matching_idx2.astype(np.int32)], 1000, 10)
-display_matches(im1, im2, desc_coords1[matching_idx1.astype(np.int32)], desc_coords2[matching_idx2.astype(np.int32)], ind)
+# h12, ind = ransac_homography(desc_coords1[matching_idx1.astype(np.int32)], desc_coords2[matching_idx2.astype(np.int32)], 1000, 10)
+# display_matches(im1, im2, desc_coords1[matching_idx1.astype(np.int32)], desc_coords2[matching_idx2.astype(np.int32)], ind)
 
 
-# mat = np.eye(3)
+mat = np.eye(3)
 # mat[0][2] = 3
 # mat[1][2] = 5
 # print(compute_bounding_box(mat, 600, 800))
+
+# panorama = PanoramicVideoGenerator("C:\/Users\Imri\PycharmProjects\IP_ex4\ex4-imrilu\external", "oxford", 2)
+# panorama.align_images()
+# panorama.generate_panoramic_images(2)
+# panorama.show_panorama(2)
+
+# import os
+# dirpath = os.getcwd()
+# pre = "oxford"
+# pana = PanoramicVideoGenerator(dirpath, pre, 2)
+# pana.align_images()
+# pana.generate_panoramic_images(1)
+# pana.show_panorama(0)
