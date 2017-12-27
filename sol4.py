@@ -55,13 +55,10 @@ def harris_corner_detector(im):
     return np.stack(np.flip(np.where(max_response), axis=0), axis=-1)
 
 def helper_sample(x, y, desc_rad):
-    div_factor = 1/4
     vec = np.arange(-desc_rad, desc_rad + 1)
-    vec_x = np.tile(np.add(vec, x * div_factor), 1 + desc_rad * 2)
-    vec_y = np.repeat(np.add(vec, y * div_factor), 1 + desc_rad * 2)
-    # print(vec_x)
-    # print(vec_y)
-    return vec_x, vec_y
+    xx, yy = np.meshgrid(vec + x/4, vec + y/4)
+    return xx.flatten(), yy.flatten()
+
 
 def sample_descriptor(im, pos, desc_rad):
     """
@@ -96,10 +93,6 @@ def find_features(pyr):
               2) A feature descriptor array with shape (N,K,K)
     """
     feature_pts = spread_out_corners(pyr[0], M_SIZE, N_SIZE, RADIUS_SIZE)
-
-    #TODO: check if row below does anything, DELETE IF NOT
-    # feature_pts = np.flip(feature_pts, axis=0)
-
     feature_descriptor = sample_descriptor(pyr[2], feature_pts, DESC_RAD)
     return feature_pts, feature_descriptor
 
@@ -111,14 +104,17 @@ def desc_score_helper(desc1, feature_desc, min_score):
     :param n: A feature descriptor to calculate it's dot product with
     :return: the indices of the 2 best scores
     """
-    score_list = np.zeros(shape=(desc1.shape[0]))
     feature_desc_flatten = feature_desc.flatten()
-    for i in range(desc1.shape[0]):
-        score_list[i] = np.dot(desc1[i].flatten(), feature_desc_flatten)
+    # making desc1 list of descriptors a flattened array, each indice is the desc flattened
+    desc1_flatten = desc1.reshape(desc1.shape[0], desc1.shape[1]*desc1.shape[2])
+    score_list = np.dot(desc1_flatten, feature_desc_flatten)
+    # taking the best 2
     best_indices = np.argpartition(score_list, -2)[-2:]
+    # iterating over only 2 elements (top 2) - const time
     for i in range(best_indices.shape[0]):
         if score_list[best_indices[i]] <= min_score:
             best_indices[i] = BAD_IDX
+
     return best_indices
 
 def match_features(desc1, desc2, min_score):
@@ -137,7 +133,7 @@ def match_features(desc1, desc2, min_score):
     matching_indices_desc2 = np.array([])
 
     # getting best matches for each desc2 feature
-    for i in range(128,desc2.shape[0]):
+    for i in range(desc2.shape[0]):
         best_scores_desc2[i] = desc_score_helper(desc1, desc2[i], min_score)
 
     for i in range(desc1.shape[0]):
@@ -163,17 +159,17 @@ def apply_homography(pos1, H12):
     :param H12: A 3x3 homography matrix.
     :return: An array with the same shape as pos1 with [x,y] point coordinates obtained from transforming pos1 using H12.
     """
-    mat = np.zeros(shape=(pos1.shape[0], pos1.shape[1]))
-    for i in range(pos1.shape[0]):
-        x = pos1[i][0]
-        y = pos1[i][1]
-        temp_vec = np.dot(H12, np.array([x, y, 1]))
-        if temp_vec[2] == 0:
-            # z tilda is 0, cant divide with him
-            print("error z2=0")
-            continue
-        mat[i] = [temp_vec[0] / temp_vec[2], temp_vec[1] / temp_vec[2]]
-    return mat
+
+    homo_coord = np.ones(shape=(pos1.shape[0]))
+    # merging the coords with the homo coord (z=1)
+    pos1_2 = np.column_stack((pos1[:, 0], pos1[:, 1], homo_coord))
+    matrix_row1, matrix_row2, matrix_row3 = np.vsplit(H12, 3)
+    output1 = np.dot(pos1_2, np.transpose(matrix_row1))
+    output2 = np.dot(pos1_2, np.transpose(matrix_row2))
+    output3 = np.dot(pos1_2, np.transpose(matrix_row3))
+
+    return np.concatenate((output1 / output3, output2 / output3), axis=1)
+
 
 
 def ransac_homography(points1, points2, num_iter, inlier_tol, translation_only=False):
@@ -202,8 +198,8 @@ def ransac_homography(points1, points2, num_iter, inlier_tol, translation_only=F
         H12 = estimate_rigid_transform(points1_temp, points2_temp, translation_only)
         # calculating new homography based on
         points1_to_2 = apply_homography(points1, H12)
-        # calculating for each descriptor in new_homo the euclidean error
 
+        # calculating for each descriptor in new_homo the euclidean error
         norm_vec1 = np.absolute(points1_to_2)
         norm_vec2 = np.absolute(points2)
         norm_vec = ((norm_vec1[:,0] - norm_vec2[:,0]) + (norm_vec1[:,1] - norm_vec2[:,1])) ** 2
@@ -261,40 +257,61 @@ def display_matches(im1, im2, points1, points2, inliers):
 
 
 def accumulate_homographies(H_succesive, m):
-  """
-  Convert a list of succesive homographies to a 
-  list of homographies to a common reference frame.
-  :param H_successive: A list of M-1 3x3 homography 
+    """
+    Convert a list of succesive homographies to a
+    list of homographies to a common reference frame.
+    :param H_successive: A list of M-1 3x3 homography
     matrices where H_successive[i] is a homography which transforms points
     from coordinate system i to coordinate system i+1.
-  :param m: Index of the coordinate system towards which we would like to 
+    :param m: Index of the coordinate system towards which we would like to
     accumulate the given homographies.
-  :return: A list of M 3x3 homography matrices, 
+    :return: A list of M 3x3 homography matrices,
     where H2m[i] transforms points from coordinate system i to coordinate system m
-  """ 
-  pass
+    """
+    H2m = np.zeros(shape=(H_succesive.shape[0], 3, 3))
+    # checking that m is valid input
+    if m > H_succesive.shape[0]:
+        # out of bounds
+        print("error, m is out of bounds")
 
+    H2m[m-1] = H_succesive[m-1]
+    for i in range(m-1, 0, -1):
+        # i < m
+        H2m[i - 1] = np.dot(H2m[i], H_succesive[i - 1])
+
+    H2m[m] = np.eye(3)
+
+    if m == H_succesive.shape[0]:
+        # we're done
+        return H2m
+
+    H2m[m+1] = np.linalg.inv(H_succesive[m+1])
+    for i in range(m+1, H_succesive.shape[0] - 1):
+        # i > m
+        H2m[i + 1] = np.dot(H2m[i], np.linalg.inv(H_succesive[i + 1]))
+
+    return H2m
 
 def compute_bounding_box(homography, w, h):
-  """
-  computes bounding box of warped image under homography, without actually warping the image
-  :param homography: homography
-  :param w: width of the image
-  :param h: height of the image
-  :return: 2x2 array, where the first row is [x,y] of the top left corner,
-   and the second row is the [x,y] of the bottom right corner
-  """
-  pass
+    """
+    computes bounding box of warped image under homography, without actually warping the image
+    :param homography: homography
+    :param w: width of the image
+    :param h: height of the image
+    :return: 2x2 array, where the first row is [x,y] of the top left corner,
+    and the second row is the [x,y] of the bottom right corner
+    """
+    return apply_homography(np.array([[0, 0], [w - 1, h - 1]]), homography)
 
 
 def warp_channel(image, homography):
-  """
-  Warps a 2D image with a given homography.
-  :param image: a 2D image.
-  :param homography: homograhpy.
-  :return: A 2d warped image.
-  """
-  pass
+    """
+    Warps a 2D image with a given homography.
+    :param image: a 2D image.
+    :param homography: homograhpy.
+    :return: A 2d warped image.
+    """
+    pass
 
 
 def warp_image(image, homography):
@@ -557,22 +574,13 @@ desc_coords1, desc1 = find_features(pyr1)
 desc_coords2, desc2 = find_features(pyr2)
 matching_idx1, matching_idx2 = match_features(desc1, desc2, 0.9)
 
-# matching_pts1 = desc_coords1[matching_idx1.astype(np.int32)]
-# matching_pts2 = desc_coords2[matching_idx2.astype(np.int32)]
-# plt.imshow(im1, cmap='gray')
-# # plt.plot(desc_coords1[:,0], desc_coords1[:,1], "o", ms=1)
-# plt.plot(matching_pts1[:,0], matching_pts1[:,1], "o", c='r', ms=1)
-# plt.show()
-
-print("hello")
+print("up to ransac")
 
 h12, ind = ransac_homography(desc_coords1[matching_idx1.astype(np.int32)], desc_coords2[matching_idx2.astype(np.int32)], 1000, 10)
 display_matches(im1, im2, desc_coords1[matching_idx1.astype(np.int32)], desc_coords2[matching_idx2.astype(np.int32)], ind)
 
 
-# R = spread_out_corners(im3, 7,7,3)
-# R = desc_coords1[ind]
-# plt.imshow(im1, cmap='gray')
-# plt.plot(R[:,0], R[:,1], "o", ms=1)
-# plt.show()
-
+# mat = np.eye(3)
+# mat[0][2] = 3
+# mat[1][2] = 5
+# print(compute_bounding_box(mat, 600, 800))
