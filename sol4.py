@@ -565,14 +565,14 @@ class PanoramicVideoGenerator:
 
 
 
-im1 = sol4_utils.read_image("C:\/Users\Imri\PycharmProjects\IP_ex4\ex4-imrilu\external\oxford001.jpg", 1)
-im2 = sol4_utils.read_image("C:\/Users\Imri\PycharmProjects\IP_ex4\ex4-imrilu\external\oxford002.jpg", 1)
-# im3 = sol4_utils.read_image("C:\ex1\gray_orig.png", 1)
-pyr1 = sol4_utils.build_gaussian_pyramid(im1, 3, 3)[0]
-pyr2 = sol4_utils.build_gaussian_pyramid(im2, 3, 3)[0]
-desc_coords1, desc1 = find_features(pyr1)
-desc_coords2, desc2 = find_features(pyr2)
-matching_idx1, matching_idx2 = match_features(desc1, desc2, 0.9)
+# im1 = sol4_utils.read_image("C:\/Users\Imri\PycharmProjects\IP_ex4\ex4-imrilu\external\oxford001.jpg", 1)
+# im2 = sol4_utils.read_image("C:\/Users\Imri\PycharmProjects\IP_ex4\ex4-imrilu\external\oxford002.jpg", 1)
+# # im3 = sol4_utils.read_image("C:\ex1\gray_orig.png", 1)
+# pyr1 = sol4_utils.build_gaussian_pyramid(im1, 3, 3)[0]
+# pyr2 = sol4_utils.build_gaussian_pyramid(im2, 3, 3)[0]
+# desc_coords1, desc1 = find_features(pyr1)
+# desc_coords2, desc2 = find_features(pyr2)
+# matching_idx1, matching_idx2 = match_features(desc1, desc2, 0.9)
 #
 # print("up to ransac")
 #
