@@ -8,7 +8,6 @@ def main():
 
   for experiment in experiments:
     exp_no_ext = experiment.split('.')[0]
-    os.system('dir')
     os.system('mkdir dump')
     os.system('mkdir dump\%s' % exp_no_ext)
     os.system('ffmpeg -i videos\%s dump\%s\%s%%03d.jpg' % (experiment, exp_no_ext, exp_no_ext))
