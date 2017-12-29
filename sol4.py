@@ -125,8 +125,8 @@ def match_features(desc1, desc2, min_score):
               1) An array with shape (M,) and dtype int of matching indices in desc1.
               2) An array with shape (M,) and dtype int of matching indices in desc2.
     """
-    best_scores_desc1 = np.zeros(shape=(desc1.shape[0], 2), dtype=np.int64)
-    best_scores_desc2 = np.zeros(shape=(desc2.shape[0], 2), dtype=np.int64)
+    best_scores_desc1 = np.zeros(shape=(desc1.shape[0], 2), dtype=int)
+    best_scores_desc2 = np.zeros(shape=(desc2.shape[0], 2), dtype=int)
     matching_indices_desc1 = np.array([])
     matching_indices_desc2 = np.array([])
 
@@ -147,7 +147,7 @@ def match_features(desc1, desc2, min_score):
             if i in best_scores_desc1[idx]:
                 matching_indices_desc1 = np.append(matching_indices_desc1, idx)
                 matching_indices_desc2 = np.append(matching_indices_desc2, i)
-    return matching_indices_desc1.astype(np.int32), matching_indices_desc2.astype(np.int32)
+    return matching_indices_desc1.astype(int), matching_indices_desc2.astype(int)
 
 
 def apply_homography(pos1, H12):
@@ -179,14 +179,14 @@ def ransac_homography(points1, points2, num_iter, inlier_tol, translation_only=F
                   containing the indices in pos1/pos2 of the maximal set of inlier matches found.
     """
     N = points1.shape[0]
-    cur_max_inliners = np.array([], dtype=np.int64)
+    cur_max_inliners = np.array([], dtype=int)
 
     for i in range(num_iter):
-        temp_best_inliners = np.array([], dtype=np.int64)
+        temp_best_inliners = np.array([], dtype=int)
         # rolling 2 random numbers in N range (as index), and getting the points
         random_pts = np.random.choice(N, 2)
-        points1_temp = points1[random_pts.astype(np.int32)]
-        points2_temp = points2[random_pts.astype(np.int32)]
+        points1_temp = points1[random_pts.astype(int)]
+        points2_temp = points2[random_pts.astype(int)]
         # estimating the homography using those points
         H12 = estimate_rigid_transform(points1_temp, points2_temp, translation_only)
         # calculating new homography based on
@@ -202,8 +202,8 @@ def ransac_homography(points1, points2, num_iter, inlier_tol, translation_only=F
         if temp_best_inliners.shape[0] > cur_max_inliners.shape[0]:
             cur_max_inliners = temp_best_inliners
 
-    final_inliners1 = points1[cur_max_inliners.astype(np.int32)]
-    final_inliners2 = points2[cur_max_inliners.astype(np.int32)]
+    final_inliners1 = points1[cur_max_inliners.astype(int)]
+    final_inliners2 = points2[cur_max_inliners.astype(int)]
 
     # print(final_inliners1)
     # print()
@@ -233,7 +233,7 @@ def display_matches(im1, im2, points1, points2, inliers):
     # adding to the points2 x param the im2 WIDTH (aka x coord)
     points2[:,0] += im2.shape[1]
     conc_pts = np.hstack((points1, points2))
-    inliers_pts = conc_pts[inliers.astype(np.int32)]
+    inliers_pts = conc_pts[inliers.astype(int)]
 
     plt.imshow(conc_img, cmap='gray')
     # plt.plot([conc_pts[:,0], conc_pts[:,2]], [conc_pts[:,1], conc_pts[:,3]], mfc='r', c='b', lw=.4, ms=3, marker='o')
@@ -264,7 +264,7 @@ def accumulate_homographies(H_succesive, m):
     for i in range(m + 1, len(H2m)):
         # i > m
         H2m[i] = np.dot(H2m[i - 1], np.linalg.inv(H_succesive[i - 1]))
-
+    # print(type(H2m))
     return H2m
 
 def compute_bounding_box(homography, w, h):
@@ -612,10 +612,10 @@ class PanoramicVideoGenerator:
 # plt.show()
 #
 # #
-# import os
-# dirpath = os.getcwd()
-# pre = "backyard"
-# pana = PanoramicVideoGenerator(dirpath, pre, 3)
-# pana.align_images(True)
-# pana.generate_panoramic_images(1)
-# pana.show_panorama(0)
+import os
+dirpath = os.getcwd()
+pre = "backyard"
+pana = PanoramicVideoGenerator(dirpath, pre, 3)
+pana.align_images(True)
+pana.generate_panoramic_images(1)
+pana.show_panorama(0)
