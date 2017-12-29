@@ -265,7 +265,7 @@ def accumulate_homographies(H_succesive, m):
         # i > m
         H2m[i] = np.dot(H2m[i - 1], np.linalg.inv(H_succesive[i - 1]))
     # print(type(H2m))
-    return np.array([[top_left_x, top_left_y], [button_right_x, button_right_y]])
+    return H2m
 
 def compute_bounding_box(homography, w, h):
     """
@@ -285,7 +285,7 @@ def compute_bounding_box(homography, w, h):
     top_left_x = np.math.floor(np.min(x))
     top_left_y = np.math.floor(np.min(y))
 
-    return [[top_left_x, top_left_y], [button_right_x, button_right_y]]
+    return np.array([[top_left_x, top_left_y], [button_right_x, button_right_y]])
 
 
 def warp_channel(image, homography):
