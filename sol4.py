@@ -265,7 +265,7 @@ def accumulate_homographies(H_succesive, m):
         # i > m
         H2m[i] = np.dot(H2m[i - 1], np.linalg.inv(H_succesive[i - 1]))
     # print(type(H2m))
-    return H2m
+    return np.array([[top_left_x, top_left_y], [button_right_x, button_right_y]])
 
 def compute_bounding_box(homography, w, h):
     """
