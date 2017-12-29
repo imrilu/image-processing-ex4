@@ -157,12 +157,13 @@ def apply_homography(pos1, H12):
     :param H12: A 3x3 homography matrix.
     :return: An array with the same shape as pos1 with [x,y] point coordinates obtained from transforming pos1 using H12.
     """
-    res = np.ones((pos1.shape[0], pos1.shape[1] + 1))
-    res[:, 0:2] = pos1
-    transformed = np.dot(H12, res.T)
+    points = np.ones((pos1.shape[0], pos1.shape[1] + 1))
+    points[:, 0:2] = pos1
+    transformed = np.dot(H12, np.transpose(points))
     transformed /= transformed[2, :]
-    final = transformed[0:2, :].T
-    return final
+    # getting only the x,y coords
+    final_pts = np.transpose(transformed[0:2, :])
+    return final_pts
 
 
 def ransac_homography(points1, points2, num_iter, inlier_tol, translation_only=False):
@@ -202,12 +203,9 @@ def ransac_homography(points1, points2, num_iter, inlier_tol, translation_only=F
         if temp_best_inliners.shape[0] > cur_max_inliners.shape[0]:
             cur_max_inliners = temp_best_inliners
 
+    # calculating the final homography with the max inliner group we found
     final_inliners1 = points1[cur_max_inliners.astype(int)]
     final_inliners2 = points2[cur_max_inliners.astype(int)]
-
-    # print(final_inliners1)
-    # print()
-    # print(final_inliners2)
 
     H12 = estimate_rigid_transform(final_inliners1, final_inliners2, translation_only)
     points1_to_2 = apply_homography(points1, H12)
@@ -254,13 +252,16 @@ def accumulate_homographies(H_succesive, m):
     :return: A list of M 3x3 homography matrices,
     where H2m[i] transforms points from coordinate system i to coordinate system m
     """
-    H2m = [1] * (len(H_succesive) + 1)
+    H2m = list()
+    H2m.append(1)
+    H2m *= len(H_succesive) + 1
     # creating identity matrix
     H2m[m] = np.eye(3)
+    # calculating the matrices backwards, each iteration with all the multiplications up to m-i
     for i in range(m - 1, -1, -1):
         # i < m
         H2m[i] = np.dot(H2m[i + 1], H_succesive[i])
-
+    # calculating the matrices forward
     for i in range(m + 1, len(H2m)):
         # i > m
         H2m[i] = np.dot(H2m[i - 1], np.linalg.inv(H_succesive[i - 1]))
@@ -276,16 +277,19 @@ def compute_bounding_box(homography, w, h):
     :return: 2x2 array, where the first row is [x,y] of the top left corner,
     and the second row is the [x,y] of the bottom right corner
     """
+    # adding the boundary points of the picture
     points = np.array([[0, 0], [0, h], [w, 0], [w, h]])
     post_homo_pts = apply_homography(points, homography)
+    # getting each point's x and y coord array
     x = post_homo_pts[:, 0]
     y = post_homo_pts[:, 1]
-    button_right_x = np.math.ceil(np.max(x))
-    button_right_y = np.math.ceil(np.max(y))
+    # getting the 'outer' boundries of the image (rounding down on left pixels, rounding up for right pixels)
+    bottom_right_x = np.math.ceil(np.max(x))
+    bottom_right_y = np.math.ceil(np.max(y))
     top_left_x = np.math.floor(np.min(x))
     top_left_y = np.math.floor(np.min(y))
 
-    return np.array([[top_left_x, top_left_y], [button_right_x, button_right_y]])
+    return np.array([[top_left_x, top_left_y], [bottom_right_x, bottom_right_y]])
 
 
 def warp_channel(image, homography):
@@ -296,18 +300,18 @@ def warp_channel(image, homography):
     :return: A 2d warped image.
     """
     homography /= homography[2,2]
+    # comuting bounding box
     bounding_box = compute_bounding_box(homography, image.shape[1], image.shape[0])
     x = np.arange(bounding_box[0][0], bounding_box[1][0] + 1)
     y = np.arange(bounding_box[0][1], bounding_box[1][1] + 1)
     xx, yy = np.meshgrid(x, y)
-    m = np.hstack((xx.flatten().reshape(-1, 1), yy.flatten().reshape(-1, 1)))
-    m = apply_homography(m, np.linalg.inv(homography))
-    xx2 = m[:, 0]
-    yy2 = m[:, 1]
-    values = map_coordinates(image, [yy2, xx2], order=1)
-    values = values.reshape(xx.shape)
-    return values
-
+    lst = np.hstack((xx.flatten().reshape(-1, 1), yy.flatten().reshape(-1, 1)))
+    homo_points = apply_homography(lst, np.linalg.inv(homography))
+    post_homo_yy = homo_points[:, 1]
+    post_homo_xx = homo_points[:, 0]
+    warped_img = map_coordinates(image, [post_homo_yy, post_homo_xx], order=1)
+    warped_img = warped_img.reshape(xx.shape)
+    return warped_img
 
 
 def warp_image(image, homography):
@@ -430,7 +434,6 @@ class PanoramicVideoGenerator:
     """
     self.file_prefix = file_prefix
     self.files = [os.path.join(data_dir, '%s%03d.jpg' % (file_prefix, i + 1)) for i in range(num_images)]
-    print(self.files)
     self.files = list(filter(os.path.exists, self.files))
     self.panoramas = None
     self.homographies = None
@@ -444,7 +447,6 @@ class PanoramicVideoGenerator:
     # Extract feature point locations and descriptors.
     points_and_descriptors = []
     for file in self.files:
-      print(file)
       image = sol4_utils.read_image(file, 1)
       self.h, self.w = image.shape
       pyramid, _ = sol4_utils.build_gaussian_pyramid(image, 3, 7)
@@ -453,7 +455,6 @@ class PanoramicVideoGenerator:
     # Compute homographies between successive pairs of images.
     Hs = []
     for i in range(len(points_and_descriptors) - 1):
-      print(i)
       points1, points2 = points_and_descriptors[i][0], points_and_descriptors[i + 1][0]
       desc1, desc2 = points_and_descriptors[i][1], points_and_descriptors[i + 1][1]
 
@@ -513,11 +514,9 @@ class PanoramicVideoGenerator:
                                   x_strip_boundary,
                                   np.ones((number_of_panoramas, 1)) * panorama_size[0]])
     x_strip_boundary = x_strip_boundary.round().astype(np.int)
-    print("starting warp")
 
     self.panoramas = np.zeros((number_of_panoramas, panorama_size[1], panorama_size[0], 3), dtype=np.float64)
     for i, frame_index in enumerate(self.frames_for_panoramas):
-      print(i)
       # warp every input image once, and populate all panoramas
       image = sol4_utils.read_image(self.files[frame_index], 2)
       warped_image = warp_image(image, self.homographies[i])
@@ -529,7 +528,6 @@ class PanoramicVideoGenerator:
         image_strip = warped_image[:, boundaries[0] - x_offset: boundaries[1] - x_offset]
         x_end = boundaries[0] + image_strip.shape[1]
         self.panoramas[panorama_index, y_offset:y_bottom, boundaries[0]:x_end] = image_strip
-    print("finished warp")
 
           # crop out areas not recorded from enough angles
     # assert will fail if there is overlap in field of view between the left most image and the right most image
@@ -611,7 +609,7 @@ class PanoramicVideoGenerator:
 # plt.imshow(n, cmap='gray')
 # plt.show()
 #
-# # x=5
+#
 # import os
 # dirpath = os.getcwd()
 # pre = "backyard"
