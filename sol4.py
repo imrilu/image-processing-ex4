@@ -612,10 +612,10 @@ class PanoramicVideoGenerator:
 # plt.show()
 #
 # #
-import os
-dirpath = os.getcwd()
-pre = "backyard"
-pana = PanoramicVideoGenerator(dirpath, pre, 3)
-pana.align_images(True)
-pana.generate_panoramic_images(1)
-pana.show_panorama(0)
+# import os
+# dirpath = os.getcwd()
+# pre = "backyard"
+# pana = PanoramicVideoGenerator(dirpath, pre, 3)
+# pana.align_images(True)
+# pana.generate_panoramic_images(1)
+# pana.show_panorama(0)
