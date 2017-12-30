@@ -53,6 +53,13 @@ def harris_corner_detector(im):
     return np.stack(np.flip(np.where(max_response), axis=0), axis=-1)
 
 def helper_sample(x, y, desc_rad):
+    """
+    A helper method that returns the flatten coords of x and y along a given axis
+    :param x:
+    :param y:
+    :param desc_rad:
+    :return:
+    """
     vec = np.arange(-desc_rad, desc_rad + 1)
     xx, yy = np.meshgrid(vec + x/4, vec + y/4)
     return xx.flatten(), yy.flatten()
@@ -104,8 +111,7 @@ def desc_score_helper(desc1, feature_desc, min_score):
     """
     feature_desc_flatten = feature_desc.flatten()
     # making desc1 list of descriptors a flattened array, each indice is the desc flattened
-    desc1_flatten = desc1.reshape(desc1.shape[0], desc1.shape[1]*desc1.shape[2])
-    score_list = np.dot(desc1_flatten, feature_desc_flatten)
+    score_list = np.dot(desc1, feature_desc_flatten)
     # taking the best 2
     best_indices = np.argpartition(score_list, -2)[-2:]
     # iterating over only 2 elements (top 2) - const time
@@ -131,11 +137,13 @@ def match_features(desc1, desc2, min_score):
     matching_indices_desc2 = np.array([])
 
     # getting best matches for each desc2 feature
+    desc1_flatten = desc1.reshape(desc1.shape[0], desc1.shape[1]*desc1.shape[2])
     for i in range(desc2.shape[0]):
-        best_scores_desc2[i] = desc_score_helper(desc1, desc2[i], min_score)
+        best_scores_desc2[i] = desc_score_helper(desc1_flatten, desc2[i], min_score)
 
+    desc2_flatten = desc2.reshape(desc2.shape[0], desc2.shape[1]*desc2.shape[2])
     for i in range(desc1.shape[0]):
-        best_scores_desc1[i] = desc_score_helper(desc2, desc1[i], min_score)
+        best_scores_desc1[i] = desc_score_helper(desc2_flatten, desc1[i], min_score)
 
     # comparing each feature's bests to find matches
     for i in range(best_scores_desc2.shape[0]):
